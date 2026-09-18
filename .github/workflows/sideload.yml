@@ -188,6 +188,9 @@ jobs:
           mkdir -p build
           command -v xcbeautify >/dev/null || brew install xcbeautify
 
+      # 只编 arm64：上游依赖里 Zano 的 plain_wallet 是预编译 C++ 静态库，
+      # 只有 arm64 切片。模拟器默认还会编 x86_64，链接时必然找不到符号。
+      # macOS runner 本身是 Apple Silicon，模拟器就是 arm64，排除 x86_64 没有损失。
       - name: 为模拟器构建
         run: |
           set -o pipefail
@@ -202,6 +205,7 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_ENTITLEMENTS="" \
+            EXCLUDED_ARCHS=x86_64 \
             | tee build/sim-build.log | xcbeautify --quieter
 
       - name: 启动模拟器并截图
