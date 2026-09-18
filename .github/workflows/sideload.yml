@@ -86,6 +86,11 @@ jobs:
           XCCONFIG_GASFREE_API_SECRET: ${{ secrets.XCCONFIG_GASFREE_API_SECRET }}
           XCCONFIG_DEFAULT_WORDS: ${{ secrets.XCCONFIG_DEFAULT_WORDS }}
 
+      - name: 准备输出目录与日志美化工具
+        run: |
+          mkdir -p build
+          command -v xcbeautify >/dev/null || brew install xcbeautify
+
       # 关键一步：完全关掉签名。
       # CODE_SIGN_ENTITLEMENTS 置空是必须的——上游的 entitlements 里有推送、
       # 关联域名、iCloud，这些免费 Apple 证书一个都给不了，带着它们 SideStore 装不上。
@@ -169,6 +174,11 @@ jobs:
           XCCONFIG_WALLET_CONNECT_V2_PROJECT_KEY: ${{ secrets.XCCONFIG_WALLET_CONNECT_V2_PROJECT_KEY }}
           XCCONFIG_HS_PROVIDER_API_KEY: ${{ secrets.XCCONFIG_HS_PROVIDER_API_KEY }}
 
+      - name: 准备输出目录与日志美化工具
+        run: |
+          mkdir -p build
+          command -v xcbeautify >/dev/null || brew install xcbeautify
+
       - name: 为模拟器构建
         run: |
           set -o pipefail
@@ -204,5 +214,3 @@ jobs:
           path: build/sim-build.log
           if-no-files-found: ignore
           retention-days: 7
-
-# 触发 GitHub 重新扫描 workflow
