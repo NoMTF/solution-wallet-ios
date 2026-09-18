@@ -1,0 +1,6 @@
+# 开发机是 Windows（autocrlf 开着），但构建跑在 macOS runner 上。
+# shell 脚本一旦带上 CRLF，在 macOS 上会直接报 "bad interpreter: /usr/bin/env bash^M"，
+# 而且报错信息很难联想到换行符，所以在这里钉死。
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
