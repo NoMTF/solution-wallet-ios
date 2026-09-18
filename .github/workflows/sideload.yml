@@ -36,6 +36,8 @@ jobs:
     needs: lint
     runs-on: macos-26
     timeout-minutes: 90
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -134,6 +136,32 @@ jobs:
           path: build/*.ipa
           if-no-files-found: error
           retention-days: 30
+
+      # 发到一个固定 tag 的 release 上。
+      # 意义在于手机端有个不变的下载地址：SideStore 支持从 URL 安装，
+      # 于是「我推代码 → CI 构建 → 你点同一个链接装最新版」，中间不用碰电脑。
+      - name: 发布到 latest
+        if: github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IPA=$(find build -maxdepth 1 -name "*.ipa" | head -1)
+          [ -n "$IPA" ] || { echo "没有找到 IPA"; exit 1; }
+          cp "$IPA" build/Solution-latest.ipa
+
+          NOTES="提交 ${GITHUB_SHA:0:7} · 构建 #${GITHUB_RUN_NUMBER} · $(date -u '+%Y-%m-%d %H:%M UTC')
+
+          $(git log -1 --pretty=%s)
+
+          SideStore 里从 URL 安装：
+          https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/Solution-latest.ipa"
+
+          # 固定 tag 要先删掉旧的，否则同名资产传不上去
+          gh release delete latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest build/Solution-latest.ipa \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "最新构建" \
+            --notes "$NOTES"
 
       # 构建失败时日志比什么都重要，而 Actions 的网页日志会被截断
       - name: 上传构建日志
