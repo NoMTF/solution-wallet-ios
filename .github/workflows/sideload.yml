@@ -1,0 +1,206 @@
+name: 侧载构建
+
+# 产出两样东西：
+#   1. 无签名 IPA —— 下载后用 SideStore 在设备上签名安装
+#   2. 模拟器截图 —— 开发机是 Windows，看不到 iOS 界面，靠这个当眼睛
+#
+# 两个 job 刻意分开：归档失败和截图失败是两件事，分开跑能少等一次完整重建。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+concurrency:
+  group: sideload-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XCODE_VERSION: "26.4"
+  WORKSPACE: Wallet.xcworkspace
+  SCHEME: Development
+
+jobs:
+  ipa:
+    name: 无签名 IPA
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 指定 Xcode 版本
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      # 上游有依赖（Monero/Solana 的 kit）是 Rust 写的，SPM 解析时会现编，
+      # 所以工具链必须在 xcodebuild 之前就位。
+      - name: 装 Rust 与 iOS target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios
+
+      - name: 缓存 cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: 装 cargo-lipo
+        run: command -v cargo-lipo >/dev/null || cargo install cargo-lipo
+
+      - name: 缓存 SPM
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: 生成 Config.xcconfig
+        run: bash .github/scripts/make-xcconfig.sh
+        env:
+          # 一个都不填也能构建，只是部分数据源会降级。
+          # 我们自己加的功能不依赖任何 key。
+          XCCONFIG_ETHERSCAN_API_KEYS: ${{ secrets.XCCONFIG_ETHERSCAN_API_KEYS }}
+          XCCONFIG_GNOSISSCAN_API_KEYS: ${{ secrets.XCCONFIG_GNOSISSCAN_API_KEYS }}
+          XCCONFIG_BSCSCAN_API_KEYS: ${{ secrets.XCCONFIG_BSCSCAN_API_KEYS }}
+          XCCONFIG_BASESCAN_API_KEYS: ${{ secrets.XCCONFIG_BASESCAN_API_KEYS }}
+          XCCONFIG_ARBISCAN_API_KEYS: ${{ secrets.XCCONFIG_ARBISCAN_API_KEYS }}
+          XCCONFIG_OPTIMISM_ETHERSCAN_API_KEYS: ${{ secrets.XCCONFIG_OPTIMISM_ETHERSCAN_API_KEYS }}
+          XCCONFIG_POLYGONSCAN_API_KEYS: ${{ secrets.XCCONFIG_POLYGONSCAN_API_KEYS }}
+          XCCONFIG_SNOWTRACE_API_KEYS: ${{ secrets.XCCONFIG_SNOWTRACE_API_KEYS }}
+          XCCONFIG_TRONGRID_API_KEYS: ${{ secrets.XCCONFIG_TRONGRID_API_KEYS }}
+          XCCONFIG_HS_PROVIDER_API_KEY: ${{ secrets.XCCONFIG_HS_PROVIDER_API_KEY }}
+          XCCONFIG_ONE_INCH_API_KEY: ${{ secrets.XCCONFIG_ONE_INCH_API_KEY }}
+          XCCONFIG_WALLET_CONNECT_V2_PROJECT_KEY: ${{ secrets.XCCONFIG_WALLET_CONNECT_V2_PROJECT_KEY }}
+          XCCONFIG_PIMLICO_API_KEY: ${{ secrets.XCCONFIG_PIMLICO_API_KEY }}
+          XCCONFIG_GASFREE_API_KEY: ${{ secrets.XCCONFIG_GASFREE_API_KEY }}
+          XCCONFIG_GASFREE_API_SECRET: ${{ secrets.XCCONFIG_GASFREE_API_SECRET }}
+          XCCONFIG_DEFAULT_WORDS: ${{ secrets.XCCONFIG_DEFAULT_WORDS }}
+
+      # 关键一步：完全关掉签名。
+      # CODE_SIGN_ENTITLEMENTS 置空是必须的——上游的 entitlements 里有推送、
+      # 关联域名、iCloud，这些免费 Apple 证书一个都给不了，带着它们 SideStore 装不上。
+      - name: 归档（不签名）
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release-Dev \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Solution.xcarchive \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            -disableAutomaticPackageResolution \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            DEVELOPMENT_TEAM="" \
+            ONLY_ACTIVE_ARCH=NO \
+            | tee build/xcodebuild.log | xcbeautify --quieter
+        continue-on-error: false
+
+      - name: 打包 IPA
+        run: bash .github/scripts/make-ipa.sh build/Solution.xcarchive build
+
+      - name: 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: solution-unsigned-ipa
+          path: build/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      # 构建失败时日志比什么都重要，而 Actions 的网页日志会被截断
+      - name: 上传构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  screenshots:
+    name: 模拟器截图
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 指定 Xcode 版本
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: 装 Rust 与 iOS target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios
+
+      - name: 缓存 cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: 装 cargo-lipo
+        run: command -v cargo-lipo >/dev/null || cargo install cargo-lipo
+
+      - name: 生成 Config.xcconfig
+        run: bash .github/scripts/make-xcconfig.sh
+        env:
+          XCCONFIG_WALLET_CONNECT_V2_PROJECT_KEY: ${{ secrets.XCCONFIG_WALLET_CONNECT_V2_PROJECT_KEY }}
+          XCCONFIG_HS_PROVIDER_API_KEY: ${{ secrets.XCCONFIG_HS_PROVIDER_API_KEY }}
+
+      - name: 为模拟器构建
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Debug-Dev \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/dd \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
+            | tee build/sim-build.log | xcbeautify --quieter
+
+      - name: 启动模拟器并截图
+        run: bash .github/scripts/shoot.sh
+
+      - name: 上传截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: build/shots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: 上传模拟器构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-build-log
+          path: build/sim-build.log
+          if-no-files-found: ignore
+          retention-days: 7
