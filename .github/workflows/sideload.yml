@@ -204,3 +204,5 @@ jobs:
           path: build/sim-build.log
           if-no-files-found: ignore
           retention-days: 7
+
+# 触发 GitHub 重新扫描 workflow
