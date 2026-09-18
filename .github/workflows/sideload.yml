@@ -68,8 +68,8 @@ jobs:
       - name: 缓存 SPM
         uses: actions/cache@v4
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
-          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved') }}
+          path: build/spm
+          key: spm-${{ runner.os }}-${{ hashFiles('packages/WalletCore/Package.swift') }}
           restore-keys: spm-${{ runner.os }}-
 
       - name: 生成 Config.xcconfig
@@ -111,9 +111,9 @@ jobs:
             -configuration Release-Dev \
             -destination 'generic/platform=iOS' \
             -archivePath build/Solution.xcarchive \
+            -clonedSourcePackagesDirPath build/spm \
             -skipMacroValidation \
             -skipPackagePluginValidation \
-            -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -197,6 +197,7 @@ jobs:
             -configuration Debug-Dev \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/dd \
+            -clonedSourcePackagesDirPath build/spm \
             -skipMacroValidation \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
