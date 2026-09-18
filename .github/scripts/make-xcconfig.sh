@@ -39,7 +39,7 @@ while IFS= read -r line || [ -n "$line" ]; do
     fi
 done <"$TEMPLATE"
 
-echo "已生成 $OUTPUT：$filled 个键有值，$empty 个留空"
+echo "已生成 ${OUTPUT}：$filled 个键有值，$empty 个留空"
 
 # 绝不能把 key 打进日志，所以只列出键名
 echo "有值的键："

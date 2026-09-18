@@ -24,8 +24,16 @@ env:
   SCHEME: Development
 
 jobs:
+  lint:
+    name: 脚本自检
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash .github/scripts/lint-scripts.sh
+
   ipa:
     name: 无签名 IPA
+    needs: lint
     runs-on: macos-26
     timeout-minutes: 90
 
@@ -139,6 +147,7 @@ jobs:
 
   screenshots:
     name: 模拟器截图
+    needs: lint
     runs-on: macos-26
     timeout-minutes: 90
 

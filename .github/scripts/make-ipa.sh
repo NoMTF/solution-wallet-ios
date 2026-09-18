@@ -47,4 +47,4 @@ rm -f "$IPA"
 (cd "$STAGE" && zip -qry "../$(basename "$IPA")" Payload)
 rm -rf "$STAGE"
 
-echo "已生成 $IPA（$(du -h "$IPA" | cut -f1)）"
+echo "已生成 ${IPA}（$(du -h "$IPA" | cut -f1)）"
